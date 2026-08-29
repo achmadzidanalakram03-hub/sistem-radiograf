@@ -62,11 +62,12 @@
             document.getElementById('status').innerText = 'Memproses inferensi...';
 
             // Ubah gambar jadi tensor 640x640 sesuai input YOLO
-            let imgTensor = tf.browser.fromPixels(imageElement)
-                .resizeBilinear([640, 640]) 
-                .expandDims(0)
-                .toFloat()
-                .div(255.0); 
+let imgTensor = tf.browser.fromPixels(imageElement)
+    .resizeBilinear([640, 640]) 
+    .expandDims(0)
+    .toFloat()
+    .div(255.0)
+    .transpose([0, 3, 1, 2]); // Perintah transpose ini memperbaiki error dimensi 
 
             // Jalankan prediksi
             const outputTensor = tfliteModel.predict(imgTensor);
