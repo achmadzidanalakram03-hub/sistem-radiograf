@@ -44,27 +44,7 @@
             }
         }
 
-        document.getElementById('upload-btn').addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    imageElement.src = e.target.result;
-                    imageElement.style.display = 'block';
-                    // Bersihkan kanvas dari deteksi sebelumnya
-                    ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-                    
-                    // Sesuaikan ukuran kanvas dengan gambar yang dimuat
-                    imageElement.onload = () => {
-                        canvasElement.width = imageElement.clientWidth;
-                        canvasElement.height = imageElement.clientHeight;
-                    };
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-
-        document.getElementById('predict-btn').addEventListener('click', () => {
+       document.getElementById('predict-btn').addEventListener('click', () => {
             if (!tfliteModel || !imageElement.src) return;
             document.getElementById('status').innerText = 'Memproses inferensi...';
 
@@ -76,63 +56,96 @@
                 .transpose([0, 3, 1, 2]); 
 
             const outputTensor = tfliteModel.predict(imgTensor);
-            
-            // Ekstraksi data dari tensor YOLO
             const data = outputTensor.dataSync();
-            const dims = outputTensor.shape; // Format standar YOLO: [1, dimensi_kelas+4, jumlah_box]
-            const numBoxes = dims[2];
-            const numClasses = dims[1] - 4;
+            const dims = outputTensor.shape; 
             
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             const xRatio = canvasElement.width / 640;
             const yRatio = canvasElement.height / 640;
 
+            let numBoxes, numClasses;
+            let isTransposed = false;
+
+            // Deteksi otomatis orientasi matriks YOLO (8400x5 atau 5x8400)
+            if (dims[1] > dims[2]) { 
+                numBoxes = dims[1];
+                numClasses = dims[2] - 4;
+                isTransposed = true;
+            } else { 
+                numBoxes = dims[2];
+                numClasses = dims[1] - 4;
+            }
+
             let kotakTerdeteksi = 0;
 
-            // Looping untuk mencari kotak dengan skor keyakinan tinggi
+            // Proses ekstraksi bounding box
             for (let i = 0; i < numBoxes; i++) {
                 let maxConf = 0;
                 let classId = -1;
 
-                // Cari probabilitas kelas tertinggi untuk kotak ini
                 for (let c = 0; c < numClasses; c++) {
-                    const conf = data[(4 + c) * numBoxes + i];
+                    let confIndex = isTransposed ? 
+                        (i * (4 + numClasses) + 4 + c) : 
+                        ((4 + c) * numBoxes + i);
+                    
+                    let conf = data[confIndex];
                     if (conf > maxConf) {
                         maxConf = conf;
                         classId = c;
                     }
                 }
 
-                // Ambang batas keyakinan (Confidence Threshold) 50%
-                if (maxConf > 0.50) {
-                    const cx = data[0 * numBoxes + i] * xRatio;
-                    const cy = data[1 * numBoxes + i] * yRatio;
-                    const w = data[2 * numBoxes + i] * xRatio;
-                    const h = data[3 * numBoxes + i] * yRatio;
+                // Ambang batas keyakinan (turunkan ke 25% agar sensitif)
+                if (maxConf > 0.25) {
+                    let cx, cy, w, h;
+
+                    if (isTransposed) {
+                        let rowOffset = i * (4 + numClasses);
+                        cx = data[rowOffset + 0];
+                        cy = data[rowOffset + 1];
+                        w = data[rowOffset + 2];
+                        h = data[rowOffset + 3];
+                    } else {
+                        cx = data[0 * numBoxes + i];
+                        cy = data[1 * numBoxes + i];
+                        w = data[2 * numBoxes + i];
+                        h = data[3 * numBoxes + i];
+                    }
+
+                    // Penyesuaian jika YOLO mengeluarkan output koordinat normalisasi (0.0 - 1.0)
+                    if (cx <= 1.0 && cy <= 1.0) {
+                        cx *= canvasElement.width;
+                        cy *= canvasElement.height;
+                        w *= canvasElement.width;
+                        h *= canvasElement.height;
+                    } else {
+                        cx *= xRatio;
+                        cy *= yRatio;
+                        w *= xRatio;
+                        h *= yRatio;
+                    }
 
                     const x = cx - (w / 2);
                     const y = cy - (h / 2);
 
-                    // Gambar Bounding Box
+                    // Gambar Kotak Hijau
                     ctx.strokeStyle = '#00FF00';
                     ctx.lineWidth = 3;
                     ctx.strokeRect(x, y, w, h);
 
-                    // Gambar Label & Skor
+                    // Gambar Teks Label
                     ctx.fillStyle = '#00FF00';
-                    ctx.font = '16px Arial';
-                    const labelText = `Objek ${classId} (${(maxConf * 100).toFixed(1)}%)`;
-                    ctx.fillText(labelText, x, y > 20 ? y - 5 : y + 20);
+                    ctx.font = 'bold 18px Arial';
+                    ctx.fillText(`Objek ${(maxConf * 100).toFixed(1)}%`, x, y > 20 ? y - 8 : y + 20);
                     
                     kotakTerdeteksi++;
                 }
             }
             
-            // Membersihkan memori GPU
             imgTensor.dispose();
             outputTensor.dispose();
 
-            document.getElementById('status').innerText = `Proses selesai! Ditemukan ${kotakTerdeteksi} titik distribusi.`;
+            document.getElementById('status').innerText = `Proses selesai! Ditemukan ${kotakTerdeteksi} titik distribusi anatomi.`;
         });
 
         loadModel();
