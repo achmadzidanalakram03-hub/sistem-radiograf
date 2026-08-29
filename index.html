@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analisis Distribusi Gambar Radiograf</title>
+    <!-- Memuat TensorFlow.js dan modul TFLite -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite/dist/tf-tflite.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; }
+        #image-container { position: relative; display: inline-block; margin-top: 20px; }
+        #radiograph-image { max-width: 100%; height: auto; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <b>Sistem Deteksi Distribusi Gambar Radiograf - RSGM Unjani</b><br><br>
+
+    <!-- Atribut capture="environment" memaksa HP membuka kamera belakang -->
+    <input type="file" id="upload-btn" accept="image/*" capture="environment">
+    <button id="predict-btn" disabled>Analisis Gambar</button>
+    <br><br>
+    
+    <div id="status">Memuat model TFLite... (Tunggu sebentar)</div>
+
+    <div id="image-container">
+        <img id="radiograph-image" src="" style="display:none;">
+    </div>
+
+    <script>
+        let tfliteModel;
+
+        // 1. Fungsi memuat model dari file best.tflite di GitHub
+        async function loadModel() {
+            try {
+                tfliteModel = await tflite.loadTFLiteModel('./best.tflite');
+                document.getElementById('status').innerText = 'Model berhasil dimuat! Silakan ambil foto radiograf.';
+                document.getElementById('predict-btn').disabled = false;
+            } catch (error) {
+                document.getElementById('status').innerText = 'Gagal memuat model: ' + error.message;
+            }
+        }
+
+        // 2. Menampilkan foto yang baru saja diambil dari kamera
+        const imageElement = document.getElementById('radiograph-image');
+        
+        document.getElementById('upload-btn').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imageElement.src = e.target.result;
+                    imageElement.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 3. Proses deteksi saat tombol diklik
+        document.getElementById('predict-btn').addEventListener('click', () => {
+            if (!tfliteModel || !imageElement.src) return;
+            document.getElementById('status').innerText = 'Memproses inferensi...';
+
+            // Ubah gambar jadi tensor 640x640 sesuai input YOLO
+            let imgTensor = tf.browser.fromPixels(imageElement)
+                .resizeBilinear([640, 640]) 
+                .expandDims(0)
+                .toFloat()
+                .div(255.0); 
+
+            // Jalankan prediksi
+            const outputTensor = tfliteModel.predict(imgTensor);
+            
+            // Cetak hasil raw ke console browser
+            outputTensor.print(); 
+            
+            document.getElementById('status').innerText = 'Proses selesai! (Cek console browser untuk melihat array output tensor)';
+        });
+
+        // Panggil fungsi muat model saat halaman pertama kali dibuka
+        loadModel();
+    </script>
+</body>
+</html>
