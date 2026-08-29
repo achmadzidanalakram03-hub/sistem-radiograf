@@ -3,28 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analisis Distribusi Gambar Radiograf - RSGM Unjani</title>
+    <title>Sistem Analisis Radiograf</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite/dist/tf-tflite.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        #image-container { position: relative; display: inline-block; margin-top: 20px; }
-        #radiograph-image { max-width: 100%; height: auto; border: 1px solid #ccc; display: block; }
-        #overlay-canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f1f5f9;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+            max-width: 750px;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 1.4rem;
+            color: var(--text-main);
+            margin-bottom: 24px;
+            font-weight: 600;
+        }
+        .upload-section {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            border: 1px solid #cbd5e1;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: #f8fafc;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 11px 22px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        button:hover:not(:disabled) {
+            background-color: var(--primary-hover);
+        }
+        button:disabled {
+            background-color: #94a3b8;
+            cursor: not-allowed;
+        }
+        #status {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        #image-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            background: #000;
+        }
+        #radiograph-image {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+        #overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            width: 100%;
+            height: 100%;
+        }
     </style>
 </head>
 <body>
-    <b>Sistem Deteksi Distribusi Gambar Radiograf - RSGM Unjani</b><br><br>
+    <div class="container">
+        <h2>Sistem Deteksi Distribusi Gambar Radiograf</h2>
+        
+        <div class="upload-section">
+            <input type="file" id="upload-btn" accept="image/*" capture="environment">
+            <button id="predict-btn" disabled>Analisis Gambar</button>
+        </div>
+        
+        <div id="status">Memuat model TFLite... (Tunggu sebentar)</div>
 
-    <input type="file" id="upload-btn" accept="image/*" capture="environment">
-    <button id="predict-btn" disabled>Analisis Gambar</button>
-    <br><br>
-    
-    <div id="status">Memuat model TFLite... (Tunggu sebentar)</div>
-
-    <div id="image-container">
-        <img id="radiograph-image" src="" style="display:none;">
-        <canvas id="overlay-canvas"></canvas>
+        <div id="image-container">
+            <img id="radiograph-image" src="" style="display:none;">
+            <canvas id="overlay-canvas"></canvas>
+        </div>
     </div>
 
     <script>
@@ -36,7 +134,7 @@
         async function loadModel() {
             try {
                 tfliteModel = await tflite.loadTFLiteModel('./best.tflite');
-                document.getElementById('status').innerText = 'Model berhasil dimuat! Silakan ambil foto radiograf.';
+                document.getElementById('status').innerText = 'Model siap digunakan! Silakan unggah foto radiograf.';
                 document.getElementById('predict-btn').disabled = false;
             } catch (error) {
                 document.getElementById('status').innerText = 'Gagal memuat model: ' + error.message;
@@ -52,10 +150,9 @@
                     imageElement.style.display = 'block';
                     ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
                     
-                    // Pastikan ukuran canvas diatur setelah gambar selesai dimuat sepenuhnya
                     imageElement.onload = () => {
-                        canvasElement.width = imageElement.naturalWidth;
-                        canvasElement.height = imageElement.naturalHeight;
+                        canvasElement.width = imageElement.clientWidth;
+                        canvasElement.height = imageElement.clientHeight;
                     };
                 };
                 reader.readAsDataURL(file);
@@ -65,7 +162,6 @@
         document.getElementById('predict-btn').addEventListener('click', () => {
             if (!tfliteModel || !imageElement.src) return;
             
-            // Validasi tambahan agar tidak terjadi error lebar 0
             if (imageElement.naturalWidth === 0 || imageElement.naturalHeight === 0) {
                 document.getElementById('status').innerText = 'Tunggu sebentar, gambar sedang dimuat...';
                 return;
@@ -84,7 +180,10 @@
             const data = outputTensor.dataSync();
             const dims = outputTensor.shape; 
             
+            canvasElement.width = imageElement.clientWidth;
+            canvasElement.height = imageElement.clientHeight;
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
             const xRatio = canvasElement.width / 640;
             const yRatio = canvasElement.height / 640;
 
@@ -149,13 +248,13 @@
                     const x = cx - (w / 2);
                     const y = cy - (h / 2);
 
-                    ctx.strokeStyle = '#00FF00';
-                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#22c55e';
+                    ctx.lineWidth = 3;
                     ctx.strokeRect(x, y, w, h);
 
-                    ctx.fillStyle = '#00FF00';
-                    ctx.font = 'bold 18px Arial';
-                    ctx.fillText(`Objek ${(maxConf * 100).toFixed(1)}%`, x, y > 20 ? y - 8 : y + 20);
+                    ctx.fillStyle = '#22c55e';
+                    ctx.font = 'bold 13px sans-serif';
+                    ctx.fillText(`Objek ${(maxConf * 100).toFixed(1)}%`, x, y > 20 ? y - 6 : y + 18);
                     
                     kotakTerdeteksi++;
                 }
