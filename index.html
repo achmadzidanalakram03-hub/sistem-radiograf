@@ -3,20 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analisis Distribusi Gambar Radiograf</title>
-    <!-- Memuat TensorFlow.js dan modul TFLite -->
+    <title>Analisis Distribusi Gambar Radiograf - RSGM Unjani</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite/dist/tf-tflite.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; }
+        /* Kontainer dibuat relatif agar canvas bisa bertumpuk tepat di atas gambar */
         #image-container { position: relative; display: inline-block; margin-top: 20px; }
-        #radiograph-image { max-width: 100%; height: auto; border: 1px solid #ccc; }
+        #radiograph-image { max-width: 100%; height: auto; border: 1px solid #ccc; display: block; }
+        #overlay-canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
     </style>
 </head>
 <body>
     <b>Sistem Deteksi Distribusi Gambar Radiograf - RSGM Unjani</b><br><br>
 
-    <!-- Atribut capture="environment" memaksa HP membuka kamera belakang -->
     <input type="file" id="upload-btn" accept="image/*" capture="environment">
     <button id="predict-btn" disabled>Analisis Gambar</button>
     <br><br>
@@ -25,12 +25,15 @@
 
     <div id="image-container">
         <img id="radiograph-image" src="" style="display:none;">
+        <canvas id="overlay-canvas"></canvas>
     </div>
 
     <script>
         let tfliteModel;
+        const imageElement = document.getElementById('radiograph-image');
+        const canvasElement = document.getElementById('overlay-canvas');
+        const ctx = canvasElement.getContext('2d');
 
-        // 1. Fungsi memuat model dari file best.tflite di GitHub
         async function loadModel() {
             try {
                 tfliteModel = await tflite.loadTFLiteModel('./best.tflite');
@@ -41,9 +44,6 @@
             }
         }
 
-        // 2. Menampilkan foto yang baru saja diambil dari kamera
-        const imageElement = document.getElementById('radiograph-image');
-        
         document.getElementById('upload-btn').addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (file) {
@@ -51,34 +51,90 @@
                 reader.onload = (e) => {
                     imageElement.src = e.target.result;
                     imageElement.style.display = 'block';
+                    // Bersihkan kanvas dari deteksi sebelumnya
+                    ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                    
+                    // Sesuaikan ukuran kanvas dengan gambar yang dimuat
+                    imageElement.onload = () => {
+                        canvasElement.width = imageElement.clientWidth;
+                        canvasElement.height = imageElement.clientHeight;
+                    };
                 };
                 reader.readAsDataURL(file);
             }
         });
 
-        // 3. Proses deteksi saat tombol diklik
         document.getElementById('predict-btn').addEventListener('click', () => {
             if (!tfliteModel || !imageElement.src) return;
             document.getElementById('status').innerText = 'Memproses inferensi...';
 
-            // Ubah gambar jadi tensor 640x640 sesuai input YOLO
-let imgTensor = tf.browser.fromPixels(imageElement)
-    .resizeBilinear([640, 640]) 
-    .expandDims(0)
-    .toFloat()
-    .div(255.0)
-    .transpose([0, 3, 1, 2]); // Perintah transpose ini memperbaiki error dimensi 
+            let imgTensor = tf.browser.fromPixels(imageElement)
+                .resizeBilinear([640, 640]) 
+                .expandDims(0)
+                .toFloat()
+                .div(255.0)
+                .transpose([0, 3, 1, 2]); 
 
-            // Jalankan prediksi
             const outputTensor = tfliteModel.predict(imgTensor);
             
-            // Cetak hasil raw ke console browser
-            outputTensor.print(); 
+            // Ekstraksi data dari tensor YOLO
+            const data = outputTensor.dataSync();
+            const dims = outputTensor.shape; // Format standar YOLO: [1, dimensi_kelas+4, jumlah_box]
+            const numBoxes = dims[2];
+            const numClasses = dims[1] - 4;
             
-            document.getElementById('status').innerText = 'Proses selesai! (Cek console browser untuk melihat array output tensor)';
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            const xRatio = canvasElement.width / 640;
+            const yRatio = canvasElement.height / 640;
+
+            let kotakTerdeteksi = 0;
+
+            // Looping untuk mencari kotak dengan skor keyakinan tinggi
+            for (let i = 0; i < numBoxes; i++) {
+                let maxConf = 0;
+                let classId = -1;
+
+                // Cari probabilitas kelas tertinggi untuk kotak ini
+                for (let c = 0; c < numClasses; c++) {
+                    const conf = data[(4 + c) * numBoxes + i];
+                    if (conf > maxConf) {
+                        maxConf = conf;
+                        classId = c;
+                    }
+                }
+
+                // Ambang batas keyakinan (Confidence Threshold) 50%
+                if (maxConf > 0.50) {
+                    const cx = data[0 * numBoxes + i] * xRatio;
+                    const cy = data[1 * numBoxes + i] * yRatio;
+                    const w = data[2 * numBoxes + i] * xRatio;
+                    const h = data[3 * numBoxes + i] * yRatio;
+
+                    const x = cx - (w / 2);
+                    const y = cy - (h / 2);
+
+                    // Gambar Bounding Box
+                    ctx.strokeStyle = '#00FF00';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x, y, w, h);
+
+                    // Gambar Label & Skor
+                    ctx.fillStyle = '#00FF00';
+                    ctx.font = '16px Arial';
+                    const labelText = `Objek ${classId} (${(maxConf * 100).toFixed(1)}%)`;
+                    ctx.fillText(labelText, x, y > 20 ? y - 5 : y + 20);
+                    
+                    kotakTerdeteksi++;
+                }
+            }
+            
+            // Membersihkan memori GPU
+            imgTensor.dispose();
+            outputTensor.dispose();
+
+            document.getElementById('status').innerText = `Proses selesai! Ditemukan ${kotakTerdeteksi} titik distribusi.`;
         });
 
-        // Panggil fungsi muat model saat halaman pertama kali dibuka
         loadModel();
     </script>
 </body>
